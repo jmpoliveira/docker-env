@@ -1,0 +1,74 @@
+name: docker-env
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODELS_TO_PULL: ${OLLAMA_MODELS_TO_PULL:-llama3 nomic-embed-text}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for model in $$OLLAMA_MODELS_TO_PULL; do
+          echo "Pulling $$model..."
+          ollama pull "$$model" || exit 1
+        done
+        echo "All models ready."
+    networks:
+      - shared
+    restart: "no"
+
+  chromadb:
+    image: chromadb/chroma:${CHROMA_VERSION:-latest}
+    container_name: chromadb
+    ports:
+      - "127.0.0.1:${CHROMA_HOST_PORT:-8001}:8000"   # host-only access
+    volumes:
+      - chroma_data:/data                            # persistence path in Chroma 1.x
+    environment:
+      ANONYMIZED_TELEMETRY: "false"
+    networks:
+      - shared
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4318:4318"     # OTLP HTTP
+      - "4317:4317"     # OTLP gRPC
+    networks:
+      - shared
+    restart: unless-stopped
+
+volumes:
+  ollama_data:
+  chroma_data:
+
+networks:
+  shared:
+    name: docker-env-net
