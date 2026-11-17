@@ -1,0 +1,38 @@
+# OpenTelemetry Collector: the single OTLP entry point for every consumer.
+# Consumers send to otel-collector:4317/4318; the backends behind it can change
+# (Jaeger and Phoenix today, Azure Monitor/Prometheus later) without touching them.
+# Every exporter has its own queue and retries: one backend being down does not
+# block the others.
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  otlp/phoenix:
+    endpoint: phoenix:4317
+    tls:
+      insecure: true
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/jaeger, otlp/phoenix]

@@ -9,8 +9,39 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Prepare env file
         run: cp .env.example .env
-      - name: Validate docker-compose.yml
-        run: docker compose config --quiet
+      - name: Validate docker-compose.yml (all profiles)
+        run: docker compose --profile "*" config --quiet
+      - name: Validate GPU override
+        run: docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile "*" config --quiet
+
+  smoke-test:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prepare env file
+        run: cp .env.example .env
+      # Naming services enables their profiles. ollama-pull is left out so CI
+      # does not download multi-GB models; --wait fails if a healthcheck fails.
+      - name: Start long-running services and wait until healthy
+        run: >
+          docker compose up -d --wait --wait-timeout 300
+          ollama litellm chromadb jaeger phoenix otel-collector postgres redis
+      - name: Check endpoints from the host
+        run: |
+          curl -fsS http://127.0.0.1:11434/api/version
+          curl -fsS http://127.0.0.1:8001/api/v2/heartbeat
+          curl -fsS http://127.0.0.1:16686/ > /dev/null
+          curl -fsS http://127.0.0.1:6006/healthz
+          curl -fsS -X POST http://127.0.0.1:4318/v1/traces \
+            -H 'Content-Type: application/json' -d '{"resourceSpans":[]}'
+          curl -fsS http://127.0.0.1:4000/health/liveliness
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose --profile "*" logs --no-color
+      - name: Tear down
+        if: always()
+        run: docker compose --profile "*" down -v

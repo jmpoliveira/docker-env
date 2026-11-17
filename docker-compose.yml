@@ -1,13 +1,25 @@
 name: docker-env
 
+# Services are grouped in profiles so each machine/project starts only what it
+# needs. Pick them with COMPOSE_PROFILES in .env (default: llm,vector,observability).
+# All host ports bind to 127.0.0.1: reachable from this machine, not from the LAN.
+
 services:
+  # --- llm -------------------------------------------------------------------
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.40.15
     container_name: ollama
+    profiles: [llm, gateway]
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      # Several services share this instance: allow concurrent requests and
+      # keep models loaded so consumers do not evict each other's models.
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-2}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-30m}
     networks:
       - shared
     healthcheck:
@@ -18,15 +30,16 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  ollama-init:
-    image: ollama/ollama:latest
-    container_name: ollama-init
+  ollama-pull:
+    image: ollama/ollama:0.40.15
+    container_name: ollama-pull
+    profiles: [llm, gateway]
     depends_on:
       ollama:
         condition: service_healthy
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODELS_TO_PULL: ${OLLAMA_MODELS_TO_PULL:-llama3 nomic-embed-text}
+      OLLAMA_MODELS_TO_PULL: ${OLLAMA_MODELS_TO_PULL:-qwen3:8b nomic-embed-text}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -39,35 +52,172 @@ services:
       - shared
     restart: "no"
 
-  chromadb:
-    image: chromadb/chroma:${CHROMA_VERSION:-latest}
-    container_name: chromadb
+  # --- gateway ---------------------------------------------------------------
+  litellm:
+    image: ghcr.io/berriai/litellm:v1.108.1
+    container_name: litellm
+    profiles: [gateway]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
     ports:
-      - "127.0.0.1:${CHROMA_HOST_PORT:-8001}:8000"   # host-only access
+      - "127.0.0.1:${LITELLM_HOST_PORT:-4000}:4000"
+    volumes:
+      - ./config/litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local-dev}
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  # --- vector ----------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:1.5.9
+    container_name: chromadb
+    profiles: [vector]
+    ports:
+      - "127.0.0.1:${CHROMA_HOST_PORT:-8001}:8000"
     volumes:
       - chroma_data:/data                            # persistence path in Chroma 1.x
     environment:
       ANONYMIZED_TELEMETRY: "false"
     networks:
       - shared
+    healthcheck:
+      # The image has bash but no curl/wget, so use bash's /dev/tcp.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8000 && printf 'GET /api/v2/heartbeat HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # --- observability ---------------------------------------------------------
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.164.0
+    container_name: otel-collector
+    profiles: [observability]
+    depends_on:
+      jaeger:
+        condition: service_healthy
+      phoenix:
+        condition: service_started
+    command: ["--config=/etc/otelcol/config.yaml"]
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+    volumes:
+      - ./config/otel-collector/config.yaml:/etc/otelcol/config.yaml:ro
+    networks:
+      - shared
     restart: unless-stopped
 
   jaeger:
-    image: jaegertracing/all-in-one:latest
+    image: jaegertracing/jaeger:2.23.0
     container_name: jaeger
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
+    profiles: [observability]
+    # OTLP stays reachable inside the network (the collector exports here, and
+    # older consumers that still point at jaeger:4318 keep working).
+    command:
+      - --set=receivers.otlp.protocols.http.endpoint=0.0.0.0:4318
+      - --set=receivers.otlp.protocols.grpc.endpoint=0.0.0.0:4317
     ports:
-      - "16686:16686"   # UI
-      - "4318:4318"     # OTLP HTTP
-      - "4317:4317"     # OTLP gRPC
+      - "127.0.0.1:16686:16686"  # UI
     networks:
       - shared
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:13133/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  phoenix:
+    image: arizephoenix/phoenix:version-21.0.0
+    container_name: phoenix
+    profiles: [observability]
+    # LLM trace and eval UI. Traces arrive through otel-collector; clients use
+    # the REST API on 6006 (datasets, experiments). Same profile as the
+    # collector, because the collector exports here.
+    ports:
+      - "127.0.0.1:${PHOENIX_HOST_PORT:-6006}:6006"  # UI + REST API
+    # 4317 is NOT published: the collector already owns host port 4317.
+    volumes:
+      - phoenix_data:/mnt/data
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data          # SQLite lives here
+      # Phoenix 21+ enables auth by default in Docker. Disabled here because,
+      # like Jaeger, it is only published on 127.0.0.1 for local development.
+      # Enable it (and give the collector an API key header) if you expose it.
+      PHOENIX_ENABLE_AUTH: "false"
+      PHOENIX_TELEMETRY_ENABLED: "false"
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:6006/healthz', timeout=4)"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # --- db --------------------------------------------------------------------
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-trixie
+    container_name: postgres
+    profiles: [db]
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+    volumes:
+      - postgres_data:/var/lib/postgresql             # PG 18+ layout
+      - ./config/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  # --- cache -----------------------------------------------------------------
+  redis:
+    image: redis:8.10.3-alpine
+    container_name: redis
+    profiles: [cache]
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - shared
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:
   ollama_data:
   chroma_data:
+  postgres_data:
+  redis_data:
+  phoenix_data:
 
 networks:
   shared:

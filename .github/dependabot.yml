@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # Opens PRs when a pinned image tag in docker-compose*.yml has a newer release.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

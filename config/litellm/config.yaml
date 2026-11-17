@@ -1,0 +1,20 @@
+# LiteLLM gateway: OpenAI-compatible API in front of the shared Ollama.
+# Consumers call http://litellm:4000/v1 with model "ollama/<model>" and the
+# master key from LITELLM_MASTER_KEY. Add cloud providers here later.
+
+model_list:
+  # Embedding models need the "ollama" provider ("ollama_chat" only does chat).
+  # Exact names take precedence over the wildcard below.
+  - model_name: "ollama/nomic-embed-text"
+    litellm_params:
+      model: "ollama/nomic-embed-text"
+      api_base: http://ollama:11434
+
+  # Chat: any pulled model, as "ollama/<name>".
+  - model_name: "ollama/*"
+    litellm_params:
+      model: "ollama_chat/*"
+      api_base: http://ollama:11434
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
