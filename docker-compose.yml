@@ -54,7 +54,7 @@ services:
 
   # --- gateway ---------------------------------------------------------------
   litellm:
-    image: ghcr.io/berriai/litellm:v1.108.1
+    image: ghcr.io/berriai/litellm:v1.109.1
     container_name: litellm
     profiles: [gateway]
     depends_on:
