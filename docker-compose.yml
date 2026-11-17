@@ -141,7 +141,7 @@ services:
     restart: unless-stopped
 
   phoenix:
-    image: arizephoenix/phoenix:version-21.0.0
+    image: arizephoenix/phoenix:version-21.1.0
     container_name: phoenix
     profiles: [observability]
     # LLM trace and eval UI. Traces arrive through otel-collector; clients use
