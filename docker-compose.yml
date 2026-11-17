@@ -101,7 +101,7 @@ services:
 
   # --- observability ---------------------------------------------------------
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.164.0
+    image: otel/opentelemetry-collector-contrib:0.165.0
     container_name: otel-collector
     profiles: [observability]
     depends_on:
