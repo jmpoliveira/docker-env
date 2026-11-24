@@ -7,7 +7,7 @@ name: docker-env
 services:
   # --- llm -------------------------------------------------------------------
   ollama:
-    image: ollama/ollama:0.40.15
+    image: ollama/ollama:0.40.17
     container_name: ollama
     profiles: [llm, gateway]
     ports:
@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
 
   ollama-pull:
-    image: ollama/ollama:0.40.15
+    image: ollama/ollama:0.40.17
     container_name: ollama-pull
     profiles: [llm, gateway]
     depends_on:
