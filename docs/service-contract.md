@@ -33,6 +33,10 @@ Ready-to-copy file: [consumer.env.example](../consumer.env.example).
   Phoenix: traces go through the collector; use `phoenix:6006` only for its
   REST API (for example the Phoenix client that uploads datasets and runs
   experiments). Authentication is disabled in this local environment.
+- **Azure Monitor is opt-in and not part of the contract.** With
+  `docker-compose.azure.yml`, the collector also exports traces to Application
+  Insights. Consumers change nothing; they should still avoid putting secrets
+  or personal data in span attributes, since traces may leave the machine.
 - **Models:** LiteLLM exposes every Ollama model as `ollama/<name>`, for
   example `ollama/qwen3:8b`. The model must be listed in
   `OLLAMA_MODELS_TO_PULL` (or pulled with `make pull`). Embedding models

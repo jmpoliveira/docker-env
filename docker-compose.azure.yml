@@ -1,0 +1,15 @@
+# Azure Monitor override: the collector also sends traces to Application Insights
+# (and so to Microsoft Foundry). Needs APPLICATIONINSIGHTS_CONNECTION_STRING in .env.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.azure.yml up -d --wait
+# or, to make it the default, in .env (';' instead of ':' on Windows):
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.azure.yml
+services:
+  otel-collector:
+    command:
+      - --config=/etc/otelcol/config.yaml
+      - --config=/etc/otelcol/azure-monitor.yaml
+    environment:
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${APPLICATIONINSIGHTS_CONNECTION_STRING:?set APPLICATIONINSIGHTS_CONNECTION_STRING in .env (README, Azure Monitor)}
+    volumes:
+      - ./config/otel-collector/azure-monitor.yaml:/etc/otelcol/azure-monitor.yaml:ro

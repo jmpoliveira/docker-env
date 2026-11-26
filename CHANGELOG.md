@@ -9,6 +9,11 @@ breaking change.
 ## [Unreleased]
 
 ### Added
+- Optional Azure Monitor export: `docker-compose.azure.yml` adds a `traces/azure`
+  pipeline (`config/otel-collector/azure-monitor.yaml`, exporter `azure_monitor`)
+  that sends traces to Application Insights, and so to Microsoft Foundry.
+  Needs `APPLICATIONINSIGHTS_CONNECTION_STRING`; `make up-azure`. CI validates
+  the override and both collector configurations.
 - `phoenix` (Arize Phoenix 21.0.0) in the `observability` profile: LLM trace
   and eval UI on port 6006, data in the `phoenix_data` volume.
 - The collector now exports traces to both Jaeger and Phoenix.
