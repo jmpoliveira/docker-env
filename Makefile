@@ -6,9 +6,10 @@ export
 
 COMPOSE := docker compose
 COMPOSE_GPU := $(COMPOSE) -f docker-compose.yml -f docker-compose.gpu.yml
+COMPOSE_AZURE := $(COMPOSE) -f docker-compose.yml -f docker-compose.azure.yml
 
 .DEFAULT_GOAL := help
-.PHONY: help up up-gpu down clean logs status models pull config chroma-health
+.PHONY: help up up-gpu up-azure down clean logs status models pull config chroma-health
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -18,6 +19,9 @@ up: ## Start the services in COMPOSE_PROFILES and wait until healthy
 
 up-gpu: ## Same as up, with NVIDIA GPU for Ollama
 	$(COMPOSE_GPU) up -d --wait
+
+up-azure: ## Same as up, and also export traces to Azure Monitor (needs APPLICATIONINSIGHTS_CONNECTION_STRING)
+	$(COMPOSE_AZURE) up -d --wait
 
 down: ## Stop all services (volumes are kept)
 	$(COMPOSE) --profile "*" down

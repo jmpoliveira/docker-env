@@ -1,6 +1,7 @@
 # OpenTelemetry Collector: the single OTLP entry point for every consumer.
 # Consumers send to otel-collector:4317/4318; the backends behind it can change
-# (Jaeger and Phoenix today, Azure Monitor/Prometheus later) without touching them.
+# (Jaeger and Phoenix here; Azure Monitor with the azure-monitor.yaml overlay)
+# without touching them.
 # Every exporter has its own queue and retries: one backend being down does not
 # block the others.
 

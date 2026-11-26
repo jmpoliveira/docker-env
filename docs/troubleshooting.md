@@ -35,6 +35,19 @@ first start of `litellm` is slower; its healthcheck allows 30 s.
 - `docker logs otel-collector` shows export errors.
 - Jaeger stores traces in memory: they disappear when it restarts.
 
+## Traces do not show in Microsoft Foundry / Application Insights
+
+- Start with the override (`make up-azure`); check that the collector loaded it:
+  `docker inspect otel-collector --format '{{.Args}}'` lists both `--config` files.
+- `docker logs otel-collector` shows `azure_monitor` export errors (a wrong or
+  truncated connection string gives HTTP 400 / 401).
+- Ingestion takes a few minutes. Query Application Insights directly first:
+  `dependencies | where timestamp > ago(30m) | take 20` in Logs.
+- Foundry finds the traces through its Application Insights connection (managed
+  in the `azure-infra` repository), and you need read access to the workspace.
+- The Log Analytics workspace may have a daily cap: once reached, ingestion
+  stops until the next day.
+
 ## Ollama is slow / runs on the CPU
 
 Start with the GPU override (`make up-gpu`) and check `docker logs ollama`

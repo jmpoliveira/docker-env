@@ -16,6 +16,21 @@ jobs:
         run: docker compose --profile "*" config --quiet
       - name: Validate GPU override
         run: docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile "*" config --quiet
+      - name: Validate Azure Monitor override
+        env:
+          # Placeholder in the documented format; nothing is sent anywhere.
+          APPLICATIONINSIGHTS_CONNECTION_STRING: "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://example.invalid/"
+        run: docker compose -f docker-compose.yml -f docker-compose.azure.yml --profile "*" config --quiet
+      - name: Validate collector configs (base, and base + Azure Monitor overlay)
+        env:
+          APPLICATIONINSIGHTS_CONNECTION_STRING: "InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://example.invalid/"
+        # Same image tag as the compose file, so a Dependabot bump is validated too.
+        run: |
+          image=$(docker compose --profile observability config --format json | jq -r '.services["otel-collector"].image')
+          docker run --rm -v "$PWD/config/otel-collector:/cfg:ro" "$image" \
+            validate --config=/cfg/config.yaml
+          docker run --rm -e APPLICATIONINSIGHTS_CONNECTION_STRING -v "$PWD/config/otel-collector:/cfg:ro" "$image" \
+            validate --config=/cfg/config.yaml --config=/cfg/azure-monitor.yaml
 
   smoke-test:
     needs: validate

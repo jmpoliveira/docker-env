@@ -1,0 +1,27 @@
+# Optional overlay: also export traces to Azure Monitor Application Insights, where
+# Microsoft Foundry shows them (project > Observability > Traces).
+# Loaded only with docker-compose.azure.yml, as a second --config: the collector
+# merges it into config.yaml. Maps merge, so this file only adds an exporter and
+# a pipeline; the Jaeger and Phoenix pipeline is untouched.
+#
+# A separate pipeline (traces/azure) rather than a third exporter in "traces":
+# - Azure gets its own queue and retries, like every other backend;
+# - processors that only make sense before data leaves the machine (filtering,
+#   redaction) can be added here without changing what Jaeger and Phoenix see.
+
+exporters:
+  azure_monitor:
+    # Application Insights connection string: an ingestion key (write-only),
+    # still kept out of git. Set in .env, passed in by docker-compose.azure.yml.
+    connection_string: ${env:APPLICATIONINSIGHTS_CONNECTION_STRING}
+    # Off by default for this exporter: without it, a slow or unreachable Azure
+    # endpoint drops telemetry instead of buffering it.
+    sending_queue:
+      enabled: true
+
+service:
+  pipelines:
+    traces/azure:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [azure_monitor]

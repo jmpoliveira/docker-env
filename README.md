@@ -15,7 +15,7 @@ so you start only what you need.
 | `ollama-pull` | `llm`, `gateway` | One-shot job that pulls the configured models, then exits | n/a | n/a |
 | `litellm` | `gateway` | OpenAI-compatible gateway in front of Ollama | http://localhost:4000 | http://litellm:4000 |
 | `chromadb` | `vector` | Vector database | http://localhost:8001 | http://chromadb:8000 |
-| `otel-collector` | `observability` | OTLP entry point for traces | `localhost:4317` (gRPC), `localhost:4318` (HTTP) | `otel-collector:4317` / `:4318` |
+| `otel-collector` | `observability` | OTLP entry point for traces; fans out to Jaeger, Phoenix and, optionally, Azure Monitor | `localhost:4317` (gRPC), `localhost:4318` (HTTP) | `otel-collector:4317` / `:4318` |
 | `jaeger` | `observability` | Trace storage and UI (in memory) | UI: http://localhost:16686 | n/a |
 | `phoenix` | `observability` | LLM trace and eval UI (Arize Phoenix, SQLite volume) | UI: http://localhost:6006 | http://phoenix:6006 (REST API) |
 | `postgres` | `db` | PostgreSQL 18 with pgvector | `localhost:5432` | `postgres:5432` |
@@ -37,6 +37,34 @@ docker logs -f ollama-pull      # follow the model downloads
 Without `COMPOSE_PROFILES` (in `.env` or the shell), `docker compose up`
 starts nothing. To start a profile ad hoc:
 `docker compose --profile db up -d`.
+
+### Azure Monitor and Microsoft Foundry (optional)
+
+The collector can also send traces to Azure Monitor Application Insights,
+where Microsoft Foundry shows them (project > Observability > Traces). Jaeger
+and Phoenix keep receiving everything; Azure gets its own pipeline, queue and
+retries ([config/otel-collector/azure-monitor.yaml](config/otel-collector/azure-monitor.yaml)).
+
+1. Get the connection string of the Application Insights resource (an
+   ingestion key: it only writes, but keep it out of git):
+
+   ```bash
+   az monitor app-insights component show -a <name> -g <resource-group> \
+     --query connectionString -o tsv
+   ```
+
+2. Put it in `.env` as `APPLICATIONINSIGHTS_CONNECTION_STRING=...`.
+3. Start with the override: `make up-azure`, or
+   `docker compose -f docker-compose.yml -f docker-compose.azure.yml up -d --wait`.
+   To make it the default, set `COMPOSE_FILE` in `.env`:
+   `docker-compose.yml:docker-compose.azure.yml` on Linux, macOS and WSL, or
+   `docker-compose.yml;docker-compose.azure.yml` on Windows (Compose uses the
+   operating system's path separator).
+
+Consumers change nothing: they keep sending to `otel-collector`. Spans reach
+Application Insights after a few minutes. Traces leave your machine in this
+mode, so check what your services put in span attributes (prompts, documents)
+before turning it on; Application Insights also bills by ingested volume.
 
 ### GPU (NVIDIA)
 
@@ -63,6 +91,8 @@ Edit `.env` (see [.env.example](.env.example) for all variables):
 | `POSTGRES_*` | `5432`, `postgres`/`postgres`, `app` | Port, credentials and database |
 | `REDIS_HOST_PORT` | `6379` | Host port for Redis |
 | `PHOENIX_HOST_PORT` | `6006` | Host port for the Phoenix UI and REST API |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | unset | Azure Monitor target; used only with `docker-compose.azure.yml` |
+| `COMPOSE_FILE` | unset | `docker-compose.yml:docker-compose.azure.yml` (`;` instead of `:` on Windows) to always load the Azure override |
 
 Image versions are pinned in `docker-compose.yml`; Dependabot opens a PR
 when a new version is released. Data lives in named volumes and survives
@@ -105,6 +135,7 @@ external network does not exist yet. Step-by-step guide:
 |---|---|---|
 | `make up` | `docker compose up -d --wait` | Start the selected profiles |
 | `make up-gpu` | `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --wait` | Start with GPU |
+| `make up-azure` | `docker compose -f docker-compose.yml -f docker-compose.azure.yml up -d --wait` | Start, also exporting traces to Azure Monitor |
 | `make down` | `docker compose --profile "*" down` | Stop everything (volumes kept) |
 | `make clean` | `docker compose --profile "*" down -v` | Stop and **delete** volumes |
 | `make logs` | `docker compose logs -f` | Follow the logs |
